@@ -1,6 +1,5 @@
-# Этот workflow собирает Go-проект и создает релиз
-# Для дополнительной информации: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
-
+# Этот workflow собирает Go-проект и создает релиз.
+# Имя исполняемого файла берется из имени репозитория.
 name: Go
 
 on:
@@ -10,11 +9,10 @@ on:
     branches: [ "main" ]
 
 jobs:
-
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # Добавлено для предоставления необходимых разрешений
+      contents: write  # Требуется для публикации релизов
     steps:
     - uses: actions/checkout@v3
 
@@ -24,7 +22,14 @@ jobs:
         go-version: '1.24'
 
     - name: Build
-      run: go build -v -o pve-zfs-snap ./...
+      id: build
+      run: |
+        # Извлекаем имя репозитория (часть после слеша)
+        EXE_NAME="${GITHUB_REPOSITORY##*/}"
+        echo "Building executable: $EXE_NAME"
+        go build -v -o "$EXE_NAME" ./...
+        # Записываем output, чтобы использовать в последующих шагах
+        echo "exe_name=$EXE_NAME" >> $GITHUB_OUTPUT
 
     - name: Test
       run: go test -v ./...
@@ -77,8 +82,8 @@ jobs:
       uses: actions/upload-release-asset@v1
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./pve-zfs-snap
-        asset_name: pve-zfs-snap
+        asset_path: ./${{ steps.build.outputs.exe_name }}
+        asset_name: ${{ steps.build.outputs.exe_name }}
         asset_content_type: application/octet-stream
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
