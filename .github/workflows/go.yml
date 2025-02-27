@@ -1,5 +1,3 @@
-# Этот workflow собирает Go-проект и создает релиз.
-# Имя исполняемого файла берется из имени репозитория.
 name: Go
 
 on:
@@ -28,60 +26,93 @@ jobs:
         EXE_NAME="${GITHUB_REPOSITORY##*/}"
         echo "Building executable: $EXE_NAME"
         go build -v -o "$EXE_NAME" ./...
-        # Записываем output, чтобы использовать в последующих шагах
         echo "exe_name=$EXE_NAME" >> $GITHUB_OUTPUT
 
     - name: Test
       run: go test -v ./...
 
-    - name: Удалить существующий релиз с тегом 'latest'
+    - name: Get latest release
+      id: get_release
       uses: actions/github-script@v6
       with:
         script: |
           const { owner, repo } = context.repo;
-          const releases = await github.rest.repos.listReleases({ owner, repo });
-          for (const release of releases.data) {
-            if (release.tag_name === 'latest') {
-              await github.rest.repos.deleteRelease({
-                owner,
-                repo,
-                release_id: release.id,
-              });
-              break;
-            }
-          }
-          // Удаляем тег 'latest', если он существует
+          let release;
           try {
-            await github.rest.git.deleteRef({
+            release = await github.rest.repos.getReleaseByTag({
               owner,
               repo,
-              ref: 'tags/latest',
+              tag: 'latest'
             });
           } catch (error) {
-            if (error.status !== 422) {
-              throw error;
+            core.info("Release with tag 'latest' not found.");
+          }
+          return release ? { id: release.data.id, upload_url: release.data.upload_url } : {};
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Delete existing release asset if exists
+      if: steps.get_release.outputs.id != ''
+      id: delete_asset
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const { owner, repo } = context.repo;
+          const releaseId = parseInt('${{ steps.get_release.outputs.id }}');
+          const assetName = '${{ steps.build.outputs.exe_name }}';
+          const assets = await github.rest.repos.listReleaseAssets({
+            owner,
+            repo,
+            release_id: releaseId
+          });
+          for (const asset of assets.data) {
+            if (asset.name === assetName) {
+              await github.rest.repos.deleteReleaseAsset({
+                owner,
+                repo,
+                asset_id: asset.id
+              });
+              core.info(`Deleted asset ${assetName}`);
             }
-            // Игнорируем ошибку, если тега нет
           }
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Создать новый релиз с тегом 'latest'
+    - name: Create release if not exists
       id: create_release
-      uses: actions/create-release@v1
+      if: steps.get_release.outputs.id == ''
+      uses: actions/github-script@v6
       with:
-        tag_name: latest
-        release_name: 'Latest Release'
-        body: 'Автоматически созданный релиз с последними изменениями.'
-        draft: false
-        prerelease: false
+        script: |
+          const { owner, repo } = context.repo;
+          const release = await github.rest.repos.createRelease({
+            owner,
+            repo,
+            tag_name: 'latest',
+            name: 'Latest Release',
+            body: 'Автоматически созданный релиз с последними изменениями.',
+            draft: false,
+            prerelease: false,
+          });
+          return { id: release.data.id, upload_url: release.data.upload_url };
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Загрузить исполняемый файл в релиз
+    - name: Set release output
+      id: set_release
+      run: |
+        if [ -n "${{ steps.get_release.outputs.id }}" ]; then
+          echo "release_id=${{ steps.get_release.outputs.id }}" >> $GITHUB_OUTPUT
+          echo "upload_url=${{ steps.get_release.outputs.upload_url }}" >> $GITHUB_OUTPUT
+        else
+          echo "release_id=${{ steps.create_release.outputs.id }}" >> $GITHUB_OUTPUT
+          echo "upload_url=${{ steps.create_release.outputs.upload_url }}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Upload release asset
       uses: actions/upload-release-asset@v1
       with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        upload_url: ${{ steps.set_release.outputs.upload_url }}
         asset_path: ./${{ steps.build.outputs.exe_name }}
         asset_name: ${{ steps.build.outputs.exe_name }}
         asset_content_type: application/octet-stream
