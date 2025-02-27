@@ -112,9 +112,14 @@ func processFolder(folder string, days int) (int, int, error) {
 		return totalFiles, deletedFiles, nil
 	}
 
-	// Вычисляем день отсечки: от самой свежей даты отступаем назад на days дней.
+	// Вычисляем день отсечки.
+	// Если days == 0, cutoff равен времени самого свежего файла.
 	cutoff := newestTime.AddDate(0, 0, -days)
-	log.Printf("Папка: %s, самая свежая дата: %v, день отсечки: %v\n", folder, newestTime, cutoff)
+	if days == 0 {
+		log.Printf("Папка: %s, самая свежая дата: %v, режим удаления: удаление файлов старше самой свежей даты\n", folder, newestTime)
+	} else {
+		log.Printf("Папка: %s, самая свежая дата: %v, день отсечки: %v\n", folder, newestTime, cutoff)
+	}
 
 	// Удаляем файлы, если и время модификации, и время создания старше cutoff.
 	for _, entry := range fileEntries {
@@ -174,7 +179,7 @@ func main() {
 	// Если аргументы командной строки заданы
 	if len(args) > 0 {
 		if isNumber(args[0]) {
-			// Первый аргумент – количество дней
+			// Первый аргумент – количество дней (0 означает удалять все файлы, старше самого свежего)
 			days, err := strconv.Atoi(args[0])
 			if err != nil {
 				log.Fatalf("Неверное значение для количества дней: %v", err)
@@ -197,8 +202,8 @@ func main() {
 	envCfg, _ := parseEnvConfig()
 	cfg = mergeConfigs(cfg, envCfg)
 
-	if cfg.Days <= 0 || len(cfg.Folders) == 0 {
-		log.Fatal("Не заданы необходимые параметры. Требуется указать количество дней (целое число) и список папок для очистки.")
+	if cfg.Days < 0 || len(cfg.Folders) == 0 {
+		log.Fatal("Не заданы необходимые параметры. Требуется указать количество дней (целое число, 0 означает удаление файлов старше самого свежего файла) и список папок для очистки.")
 	}
 
 	overallTotal := 0
