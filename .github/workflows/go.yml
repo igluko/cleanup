@@ -1,0 +1,84 @@
+# Этот workflow собирает Go-проект и создает релиз
+# Для дополнительной информации: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+
+name: Go
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Добавлено для предоставления необходимых разрешений
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.24'
+
+    - name: Build
+      run: go build -v -o pve-zfs-snap ./...
+
+    - name: Test
+      run: go test -v ./...
+
+    - name: Удалить существующий релиз с тегом 'latest'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const { owner, repo } = context.repo;
+          const releases = await github.rest.repos.listReleases({ owner, repo });
+          for (const release of releases.data) {
+            if (release.tag_name === 'latest') {
+              await github.rest.repos.deleteRelease({
+                owner,
+                repo,
+                release_id: release.id,
+              });
+              break;
+            }
+          }
+          // Удаляем тег 'latest', если он существует
+          try {
+            await github.rest.git.deleteRef({
+              owner,
+              repo,
+              ref: 'tags/latest',
+            });
+          } catch (error) {
+            if (error.status !== 422) {
+              throw error;
+            }
+            // Игнорируем ошибку, если тега нет
+          }
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Создать новый релиз с тегом 'latest'
+      id: create_release
+      uses: actions/create-release@v1
+      with:
+        tag_name: latest
+        release_name: 'Latest Release'
+        body: 'Автоматически созданный релиз с последними изменениями.'
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Загрузить исполняемый файл в релиз
+      uses: actions/upload-release-asset@v1
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./pve-zfs-snap
+        asset_name: pve-zfs-snap
+        asset_content_type: application/octet-stream
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
