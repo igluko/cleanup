@@ -19,8 +19,12 @@ jobs:
       with:
         go-version: '1.24'
 
+    - name: Get repository name
+      id: repo_name
+      run: echo "REPO_NAME=$(basename $GITHUB_REPOSITORY)" >> $GITHUB_ENV
+
     - name: Build
-      run: go build -v -o ${{ github.repository.split('/')[1] }} ./...
+      run: go build -v -o $REPO_NAME ./...
 
     - name: Test
       run: go test -v ./...
@@ -73,8 +77,8 @@ jobs:
       uses: actions/upload-release-asset@v1
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./${{ github.repository.split('/')[1] }}
-        asset_name: ${{ github.repository.split('/')[1] }}
+        asset_path: ./${{ env.REPO_NAME }}
+        asset_name: ${{ env.REPO_NAME }}
         asset_content_type: application/octet-stream
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
